@@ -4,163 +4,70 @@ const rest = require("restler-bluebird");
 const moment = require("moment");
 
 (async () => {
-	const browser = await puppeteer.launch({ headless: true, timeout: 60000 });
-	const page = await browser.newPage();
-	console.log("Loading url", process.env.AFP_URL);
-
-	page.on("response", response => {
-		(async () => {
-			if (
-				response.url ===
-				"http://www.afpforum.com/AFPForum/AddDateCriterion/mobileapi.ashx"
-			) {
-				var jsonResponse = await response.json();
-				var articles = jsonResponse.Data.Results;
-				globalArticles = articles;
-				// console.log(articles);
-				await page.waitFor(5000);
-				for (let article of articles) {
-					let exists = storedArticles.find(
-						storedArticle =>
-							storedArticle.provider_uid === article.UniqueName
-					);
-					if (!exists) {
-						try {
-							// console.log(
-							// 	`Waiting for [data-uniquename='${
-							// 		article.UniqueName
-							// 	}']`
-							// );
-							await page.waitForSelector(
-								`[data-uniquename='${article.UniqueName}']`,
-								{ visible: true, timeout: 5000 }
-							);
-						} catch (e) {
-							console.trace(e);
-						}
-						try {
-							// console.log(
-							// 	`Clicking [data-uniquename='${
-							// 		article.UniqueName
-							// 	}']`
-							// );
-							await page.click(
-								`[data-uniquename='${article.UniqueName}']`
-							);
-						} catch (e) {
-							console.trace(e);
-						}
-						try {
-							// console.log(`Waiting for #docDetailBack`);
-							await page.waitFor(1000);
-						} catch (e) {
-							console.trace(e);
-						}
-						try {
-							// console.log(`Clicking #docDetailBack`);
-							await page.click("#docDetailBack");
-						} catch (e) {
-							console.trace(e);
-						}
-						// console.log("Done with article");
-						await page.waitFor(500);
-					}
-				}
-				console.log("All done");
-				await page.waitFor(2000);
-				await browser.close();
-			} else if (
-				response.url ===
-				"http://www.afpforum.com/AFPForum/DocumentGet/mobileapi.ashx"
-			) {
-				var jsonResponse = await response.json();
-				// console.log(jsonResponse);
-				var article = jsonResponse.Data;
-				var globalArticle = globalArticles.find(
-					ga => ga.UniqueName === jsonResponse.ContextData
-				);
-				console.log(jsonResponse.ContextData, article.Title);
-				var body = article.Description;
-				console.log({ globalArticle });
-				console.log(globalArticle.Date + " " + globalArticle.Time);
-				var date = moment(
-					globalArticle.Date + " " + globalArticle.Time,
-					"DD/MM/YYYY HH:mm:ss"
-				).format("YYYY-MM-DDTHH:mm:ss");
-				console.log({ date });
-				var data = {
-					headline: article.Title,
-					blurb: "",
-					provider_uid: jsonResponse.ContextData,
-					body,
-					byline: article.ByLine,
-					provider: "AFP",
-					city: "",
-					country: "",
-					keywords: article.Keywords.split("|"),
-					date
-				};
-				// console.log({ data });
-				await rest.post(process.env.API_ENDPOINT, {
-					data,
-					username: process.env.API_USERNAME,
-					password: process.env.API_PASSWORD
-				});
-				// console.log({ article });
-			}
-		})();
-	});
-	// Load the site
-	await page.goto(process.env.AFP_URL);
-	var storedArticleData = await rest.get(process.env.API_ENDPOINT, {
-		fields: "provider_uid",
+	var storedArticleData = await rest.get(process.env.API_ENDPOINT + `?fields=provider_uid&filter[provider]=News24`, {
 		username: process.env.API_USERNAME,
 		password: process.env.API_PASSWORD
 	});
 	var storedArticles = storedArticleData.data;
-
-	// Get rid of blocking page
-	await page.waitForFunction(
-		"document.getElementById('shortcutParent').style.display == 'block'"
-	);
-	await page.waitForFunction(
-		"document.getElementById('shortcutParent').style.display = 'none'"
-	);
-
+	
+	// Load the site
+	const browser = await puppeteer.launch({ headless: true, timeout: 5000 });
+	const page = await browser.newPage();
+	
+	console.log("Loading url", process.env.LOGIN_URL);
+	await page.goto(process.env.LOGIN_URL);
+	
 	// Login
 	await page.waitForSelector("#username");
-	await page.type("#username", process.env.AFP_USERNAME);
-	await page.type("#Password", process.env.AFP_PASSWORD);
-	await page.click("#btnConnexion > input");
 
-	await page.waitForSelector("#login");
+	await page.type("#username", process.env.USERNAME);
+	await page.type("#password", process.env.PASSWORD);
+	await page.click("#login-form > div.row-fluid > div:nth-child(1) > div:nth-child(6) > div > input");
+	await page.waitForSelector("#header-sign-in");
+	
+	console.log("Loading url", process.env.URL);
+	await page.goto(process.env.URL);
+	await page.waitForSelector(".newswire-header");
 
-	// Accept T&Cs
-	await page.waitForSelector("#cbAcceptCGU");
-	await page.click("#cbAcceptCGU");
-	await page.click("#btnOKCGU");
+	let articleElements = await page.$$(".newswire-header");
+	let articles = [];
+	let cookies = await page.cookies();
+	let aspSessId = null;
+	for (let cookie of cookies) {
+		let name = await cookie.name;
+		if (name === "ASP.NET_SessionId")
+			aspSessId = await cookie.value;
+	}
+	for (let articleEl of articleElements) {
+		let urlEl = await articleEl.getProperty("href");
+		let url = await urlEl.jsonValue();
+		let id = url.replace(process.env.URL + "#", "");
+		let exists = storedArticles.find(
+			storedArticle =>
+				storedArticle.provider_uid === id
+		);
+		if (!exists) {
+			console.log({ id });
+			let article = await rest.get(`http://www.galloimages.co.za/newswire/download?id=${ id }&extension=json`, { headers: { Host: "www.galloimages.co.za", Cookie: `ASP.NET_SessionId=${aspSessId}` }});
+			let jsonResponse = JSON.parse(article);
+			let data = {
+				headline: jsonResponse.headline,
+				blurb: jsonResponse.slugline,
+				provider_uid: id,
+				body: jsonResponse.body.value,
+				byline: jsonResponse.author,
+				provider: "News24",
+				date: jsonResponse.dateCreated,
+				keywords: jsonResponse.tags,
+			}
+			await rest.post(process.env.API_ENDPOINT, {
+				data,
+				username: process.env.API_USERNAME,
+				password: process.env.API_PASSWORD
+			});
+		}
+	}
 
-	// // Get rid of overlay
-	await page.click("body");
-
-	// await page.waitFor(5000);
-
-	// // Wait for the results page to load and display the results.
-	// const resultsSelector = "li.li_news_text";
-	// await page.waitForSelector(resultsSelector);
-
-	// // Extract the results from the page.
-	// const stories = await page.evaluate(resultsSelector => {
-	// 	const s = Array.from(document.querySelectorAll(resultsSelector));
-	// 	return s.map(story => {
-	// 		return {
-	// 			headline: story
-	// 				.getElementsByClass("doc-title")[0]
-	// 				.innerHTML.trim()
-	// 		};
-	// 	});
-	// }, resultsSelector);
-	// console.log(links);
-	// console.log("All done");
-	// await browser.close();
+	console.log("Done")
+	browser.close();
 })();
