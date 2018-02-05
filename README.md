@@ -25,3 +25,15 @@ API_ENDPOINT=<url to the API's endpoint to store the articles>
 ## Running
 
 `npm start`
+
+## Troubleshooting
+
+If you get an error like `Running as root without --no-sandbox is not supported.`, create another user to run this app and make sure this user has permission to run Chrome here.
+
+```
+adduser my-user
+chmod -R u+x node_modules/puppeteer/.local-chromium/linux-515411/chrome-linux/
+chown my-user -R node_modules/puppeteer/.local-chromium/linux-515411/chrome-linux/
+```
+
+Then `su my-user` and set up your Cron in there. 
