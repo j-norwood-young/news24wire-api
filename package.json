@@ -1,13 +1,11 @@
 {
   "name": "afp-api",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "",
   "main": "index.js",
   "dependencies": {
-    "dotenv": "^5.0.0",
-    "moment": "^2.20.1",
-    "puppeteer": "^1.0.0",
-    "restler-bluebird": "^0.2.2"
+    "axios": "^0.18.0",
+    "dotenv": "^7.0.0"
   },
   "devDependencies": {},
   "scripts": {
